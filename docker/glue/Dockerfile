@@ -1,41 +1,52 @@
-FROM buildpack-deps:bullseye
+FROM python:3.7.12-bullseye
 
-# Install OpenJDK 8, Python zip
-RUN wget -qO - https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public | apt-key add - \
-    && echo "deb https://adoptopenjdk.jfrog.io/adoptopenjdk/deb/ bullseye main" >> /etc/apt/sources.list \
-    && apt-get update \ 
-    && apt-get install -y adoptopenjdk-8-hotspot python3 python3-pip zip \
-    && apt-get clean \
-    && rm -rf /var/tmp/* /tmp/* /var/lib/apt/lists/*
+# JDK 1.8 installation
+RUN wget https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public -O public.key && \
+	gpg --no-default-keyring --keyring ./adoptopenjdk-keyring.gpg --import ./public.key && \
+	gpg --no-default-keyring --keyring ./adoptopenjdk-keyring.gpg --export --output adoptopenjdk-archive-keyring.gpg && \
+	rm public.key && \
+	rm adoptopenjdk-keyring.gpg && \
+	mv adoptopenjdk-archive-keyring.gpg /usr/share/keyrings && \
+	echo "deb [signed-by=/usr/share/keyrings/adoptopenjdk-archive-keyring.gpg] https://adoptopenjdk.jfrog.io/adoptopenjdk/deb bullseye main" | tee /etc/apt/sources.list.d/adoptopenjdk.list && \
+	apt-get update && \
+	apt-get install -y adoptopenjdk-8-hotspot zip vim
+	
+# Spark / maven (still required?) / Amazon Glue3 packages (captured from live running job : /opt/amazon folder)
+RUN curl -SsL https://aws-glue-etl-artifacts.s3.amazonaws.com/glue-common/apache-maven-3.6.0-bin.tar.gz | tar -C /opt --warning=no-unknown-keyword -xzf -
+RUN curl -SsL https://aws-glue-etl-artifacts.s3.amazonaws.com/glue-3.0/spark-3.1.1-amzn-0-bin-3.2.1-amzn-3.tgz | tar -C /opt --warning=no-unknown-keyword -xf -
 
-# Install python libs
-RUN python3 -m pip install pyspark==3.1.1 boto3 pytest
+# Env variables
+ENV M2_HOME=/opt/apache-maven-3.6.0
+ENV JAVA_HOME=/usr/lib/jvm/adoptopenjdk-8-hotspot-amd64
+ENV SPARK_HOME=/opt/spark-3.1.1-amzn-0-bin-3.2.1-amzn-3
+ENV GLUE_HOME=/opt/amazon
+ENV PATH=${M2_HOME}/bin:${GLUE_HOME}/bin:$PATH
+ENV PYTHONPATH=${GLUE_HOME}/spark/jars/spark-core_2.12-3.1.1-amzn-0.jar:${GLUE_HOME}/spark/python/lib/pyspark.zip:${GLUE_HOME}/spark/python/lib/py4j-0.10.9-src.zip:${GLUE_HOME}/lib/python3.6/site-packages
+ENV LD_LIBRARY_PATH=${GLUE_HOME}/lib/hadoop-lzo-native:${GLUE_HOME}/lib/hadoop-native/:${GLUE_HOME}/lib/glue-native
+ENV SPARK_CONF_DIR=${GLUE_HOME}/conf
 
-# Install aws-cli
-RUN wget -q -P /tmp https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip \
-    && unzip -d /tmp /tmp/awscli-exe-linux-x86_64.zip \
-    && /tmp/aws/install -i /usr/local/aws-cli -b /usr/bin \
-    && rm -f /tmp/awscli-exe-linux-x86_64.zip
+# Extract glue fies
+ADD glue3.zip /tmp
+RUN unzip -d /opt/amazon /tmp/glue3.zip
 
-# Install maven
-RUN wget -q -P /tmp https://aws-glue-etl-artifacts.s3.amazonaws.com/glue-common/apache-maven-3.6.0-bin.tar.gz \
-    && mkdir /usr/share/maven \
-    && tar -xzf /tmp/apache-maven-3.6.0-bin.tar.gz -C /usr/share/maven --strip-components=1 \
-    && rm -f /tmp/apache-maven-3.6.0-bin.tar.gz \
-    && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
-ENV MAVEN_HOME=/usr/share/maven M2_HOME=/usr/share/maven MAVEN_CONFIG=/home/.m2
+# additional python lib/bin
+RUN pip install awscli pyspark==3.1.1 pytest boto3 delta-spark==1.0.0
 
-# Install spark
-RUN wget -q -P /tmp https://aws-glue-etl-artifacts.s3.amazonaws.com/glue-3.0/spark-3.1.1-amzn-0-bin-3.2.1-amzn-3.tgz \
-    && mkdir /opt/spark \
-    && tar -xf /tmp/spark-3.1.1-amzn-0-bin-3.2.1-amzn-3.tgz -C /opt/spark --strip-components=1 \
-    && rm -f /tmp/spark-3.1.1-amzn-0-bin-3.2.1-amzn-3.tgz
-ENV SPARK_HOME /opt/spark
+# to run spark in local mode, and enable s3a filesystem instead of EMR
+RUN sed -i 's/spark.master jes/spark.master local/g' /opt/amazon/conf/spark-defaults.conf
+RUN sed -i 's/spark.hadoop.fs.s3.impl com.amazon.ws.emr.hadoop.fs.EmrFileSystem/# spark.hadoop.fs.s3.impl com.amazon.ws.emr.hadoop.fs.EmrFileSystem/g' /opt/amazon/conf/spark-defaults.conf
+RUN sed -i 's/# spark.hadoop.fs.s3.impl org.apache.hadoop.fs.s3a.S3AFileSystem/spark.hadoop.fs.s3.impl org.apache.hadoop.fs.s3a.S3AFileSystem/g' /opt/amazon/conf/spark-defaults.conf
 
-# Install Glue
-RUN wget -q -o /tmp/master.zip https://github.com/awslabs/aws-glue-libs/archive/refs/heads/master.zip \
-    && unzip -d /tmp master.zip \
-    && mv /tmp/aws-glue-libs-master /home/aws-glue-libs \
-    && rm -f /tmp/master.zip \
-    && chmod u+x /home/aws-glue-libs/bin/glue-setup.sh \
-    && /home/aws-glue-libs/bin/glue-setup.sh
+# run scripts
+RUN echo '#!/usr/bin/env bash \n\n ${SPARK_HOME}/bin/spark-submit --packages io.delta:delta-core_2.12:1.0.0 --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" $@' > $GLUE_HOME/bin/gluesparksubmit
+RUN echo '#!/usr/bin/env bash \n\n ${SPARK_HOME}/bin/pyspark --packages io.delta:delta-core_2.12:1.0.0 --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" $@' > $GLUE_HOME/bin/gluepyspark
+RUN echo '#!/usr/bin/env bash \n\n exec pytest "$@"' > $GLUE_HOME/bin/gluepytest
+RUN chmod +x $GLUE_HOME/bin/gluesparksubmit && \
+	chmod +x $GLUE_HOME/bin/gluepyspark && \
+	chmod +x $GLUE_HOME/bin/gluepytest && \
+	mkdir -p /opt/work
+
+# Clean-up some tmp files
+RUN find /opt -name "._*" -type f -delete
+
+WORKDIR /workspace
