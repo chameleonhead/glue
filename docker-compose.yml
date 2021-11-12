@@ -2,6 +2,8 @@ version: '3.8'
 services:
   glue:
     image: amazon/aws-glue-libs:glue_libs_1.0.0_image_01
+    # build:
+    #   context: ./docker/glue
     command: /home/aws-glue-libs/bin/gluesparksubmit src/show.py
     working_dir: /workspace
     volumes:
