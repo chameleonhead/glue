@@ -1,25 +1,63 @@
 import pandas as pd
 import numpy as np
-from faker import Factory 
+from faker import Factory
+import os.path
+import datetime
 
 # create some fake data
 fake = Factory.create('ja_JP')
 
-# function to create a dataframe with fake values for our workers
-def make_workers(num):
-    
+
+def make_kyouhanten(num):
+    return [{'共販店コード': x+1000, '共販店名': fake.company()} for x in range(num)]
+
+
+def make_juchu_kyoten(num):
+    return [{'受注拠点コード': x+1000, '受注拠点名': fake.administrative_unit() + fake.city()} for x in range(num)]
+
+
+def make_hinban(num):
+    return [{'品番': x+1000, '品名': fake.color_name()} for x in range(num)]
+
+
+def load_or_create_csv(fname, factory, num):
+    if os.path.isfile(fname):
+        return pd.read_csv(fname)
+    else:
+        df = pd.DataFrame(factory(num=num))
+        df.to_csv(fname, index=False)
+        return df
+
+
+kyouhanten_df = load_or_create_csv('data/kyouhanten.csv', make_kyouhanten, 100)
+juchu_kyoten_df = load_or_create_csv(
+    'data/juchu_kyoten.csv', make_juchu_kyoten, 100)
+hinban_df = load_or_create_csv('data/hinban.csv', make_hinban, 100)
+
+
+def make_orders(date, num):
+
     # lists to randomly assign to workers
-    status_list = ['Full Time', 'Part Time', 'Per Diem']
-    team_list = [fake.color_name() for x in range(4)]
-    
+    kyouhanten_code_list = kyouhanten_df['共販店コード'].tolist()
+    juchu_kyoten_code_list = juchu_kyoten_df['受注拠点コード'].tolist()
+    hinban_list = hinban_df['品番'].tolist()
 
-    fake_workers = [{'Worker ID':x+1000,
-                  'Worker Name':fake.name(), 
-                  'Hire Date':fake.date_between(start_date='-30y', end_date='today'),
-                  'Worker Status':np.random.choice(status_list, p=[0.50, 0.30, 0.20]), # assign items from list with different probabilities
-                  'Team':np.random.choice(team_list)} for x in range(num)]
-        
-    return fake_workers
+    fake_orders = [{'共販店コード': np.random.choice(kyouhanten_code_list),
+                    '受注拠点コード': np.random.choice(juchu_kyoten_code_list),
+                    '受注日': date,
+                    'アイテムNo.': item_no,
+                    '品番': np.random.choice(hinban_list)} for item_no in range(1, 1 + num)]
 
-worker_df = pd.DataFrame(make_workers(num=5000))
-print(worker_df.head())
+    return fake_orders
+
+
+print(kyouhanten_df.head())
+print(juchu_kyoten_df.head())
+print(hinban_df.head())
+
+today = datetime.date.today()
+date_list = [today + datetime.timedelta(days=num) for num in range(-30, 1)]
+orders = []
+for date in date_list:
+    orders.extend(make_orders(date, 10))
+print(pd.DataFrame(orders))
