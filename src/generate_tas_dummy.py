@@ -29,13 +29,30 @@ def load_or_create_csv(fname, factory, num):
         return df
 
 
-kyouhanten_df = load_or_create_csv('data/kyouhanten.csv', make_kyouhanten, 100)
+kyouhanten_df = load_or_create_csv(
+    'data/tas/kyouhanten.csv', make_kyouhanten, 100)
 juchu_kyoten_df = load_or_create_csv(
-    'data/juchu_kyoten.csv', make_juchu_kyoten, 100)
-hinban_df = load_or_create_csv('data/hinban.csv', make_hinban, 100)
+    'data/tas/juchu_kyoten.csv', make_juchu_kyoten, 100)
+hinban_df = load_or_create_csv('data/tas/hinban.csv', make_hinban, 100)
 
 
 def make_orders(date, num):
+
+    # lists to randomly assign to workers
+    kyouhanten_code_list = kyouhanten_df['共販店コード'].tolist()
+    juchu_kyoten_code_list = juchu_kyoten_df['受注拠点コード'].tolist()
+    hinban_list = hinban_df['品番'].tolist()
+
+    fake_orders = [{'共販店コード': np.random.choice(kyouhanten_code_list),
+                    '受注拠点コード': np.random.choice(juchu_kyoten_code_list),
+                    '受注日': date,
+                    'アイテムNo.': item_no,
+                    '品番': np.random.choice(hinban_list)} for item_no in range(1, 1 + num)]
+
+    return fake_orders
+
+
+def make_nouki_shitei_file(date, num):
 
     # lists to randomly assign to workers
     kyouhanten_code_list = kyouhanten_df['共販店コード'].tolist()
