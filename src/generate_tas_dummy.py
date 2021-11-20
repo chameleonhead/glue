@@ -9,6 +9,23 @@ import random
 fake = Factory.create('ja_JP')
 
 
+def load_or_create_csv(fname, factory, num):
+    pdir = os.path.dirname(fname)
+    os.makedirs(pdir, exist_ok=True)
+    if os.path.isfile(fname):
+        return pd.read_csv(fname)
+    else:
+        df = pd.DataFrame([factory(num=num) for num in range(num)])
+        df.to_csv(fname, index=False)
+        return df
+
+
+def write_to_csv(fname, df):
+    pdir = os.path.dirname(fname)
+    os.makedirs(pdir, exist_ok=True)
+    df.to_csv(fname, index=False)
+
+
 def make_kyouhanten(kyouhanten_code):
     return {'共販店コード': kyouhanten_code, '共販店名': fake.company()}
 
@@ -33,38 +50,28 @@ def make_make(make_code):
     return {'メーカーコード': make_code, 'メーカー名': fake.company()}
 
 
-def load_or_create_csv(fname, factory, num):
-    os.makedirs('data/tas', exist_ok=True)
-    if os.path.isfile('data/tas/' + fname):
-        return pd.read_csv('data/tas/' + fname)
-    else:
-        df = pd.DataFrame([factory(num=num) for num in range(num)])
-        df.to_csv('data/tas/' + fname, index=False)
-        return df
-
-
 kyouhanten_df = load_or_create_csv(
-    'kyouhanten.csv',
+    'data/tas/kyouhanten.csv',
     lambda num: make_kyouhanten(num + 1000),
     10)
 kyoten_df = load_or_create_csv(
-    'kyoten.csv',
+    'data/tas/kyoten.csv',
     lambda num: make_kyoten(num + 1000),
     10)
 hinban_df = load_or_create_csv(
-    'hinban.csv',
+    'data/tas/hinban.csv',
     lambda num: make_hinban(num + 1000),
     100)
 okyakusama_df = load_or_create_csv(
-    'okyakusama.csv',
+    'data/tas/okyakusama.csv',
     lambda num: make_okyakusama(num + 1000),
     100)
 shimukesaki_df = load_or_create_csv(
-    'shimukesaki.csv',
+    'data/tas/shimukesaki.csv',
     lambda num: make_shimukesaki(num + 1000),
     100)
 make_df = load_or_create_csv(
-    'make.csv',
+    'data/tas/make.csv',
     lambda num: make_make(num + 1000),
     100)
 
@@ -104,12 +111,11 @@ kyouhanten_code_list = kyouhanten_df['共販店コード'].tolist()
 kyoten_code_list = kyoten_df['拠点コード'].tolist()
 
 
+orders = []
+nouki_shitei_file = []
+nouhin = []
 for date in date_list:
     for kyouhanten_code in kyouhanten_code_list:
-        orders = []
-        nouki_shitei_file = []
-        nouhin = []
-
         for kyoten_code in kyoten_code_list:
             for num in range(10):
                 hinban = np.random.choice(hinban_df['品番'])
@@ -136,21 +142,12 @@ for date in date_list:
                     hinban,
                     date))
 
-        os.makedirs(
-            f'data/tas/orders/{date.isoformat()}',
-            exist_ok=True)
-        pd.DataFrame(orders).to_csv(
-            f'data/tas/orders/{date.isoformat()}/{kyouhanten_code}.csv',
-            index=False)
-        os.makedirs(
-            f'data/tas/nouki_shitei_file/{date.isoformat()}',
-            exist_ok=True)
-        pd.DataFrame(nouki_shitei_file).to_csv(
-            f'data/tas/nouki_shitei_file/{date.isoformat()}/{kyouhanten_code}.csv',
-            index=False)
-        os.makedirs(
-            f'data/tas/nouhin/{date.isoformat()}',
-            exist_ok=True)
-        pd.DataFrame(nouhin).to_csv(
-            f'data/tas/nouhin/{date.isoformat()}/{kyouhanten_code}.csv',
-            index=False)
+write_to_csv(
+    f'data/tas/orders.csv',
+    pd.DataFrame(orders))
+write_to_csv(
+    f'data/tas/nouki_shitei_file.csv',
+    pd.DataFrame(nouki_shitei_file))
+write_to_csv(
+    f'data/tas/nouhin.csv',
+    pd.DataFrame(nouhin))
